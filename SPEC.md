@@ -3,7 +3,7 @@
 > 本文件是需求的唯一来源（single source of truth）。后续需求变更请直接更新本文件，
 > 并同步调整 [monthly_compare.py](monthly_compare.py) 与 [selftest.py](selftest.py)。
 
-- 版本：v3
+- 版本：v4
 - 最后更新：2026-06-06
 
 ---
@@ -40,6 +40,9 @@
 | `Total Due` | 应付/未结余额 |
 | `Risk` | 风险标记（决定 Income Type） |
 | `Invoice Date` | 开票日期（Age_Debt 用于按月筛选） |
+| `Base Equiv` | 本位币等值（决定 Refined Base Equiv） |
+| `Cover` | 与 `Ver` 合并为 `Cover Ver` |
+| `Ver` | 版本号（源文件可能为 float） |
 
 ### 2.3 月度文件预处理（按顺序）
 
@@ -47,6 +50,9 @@
    上述关键列均落在保留的列里。
 2. **去重**：按 `Invoice No` 分组，`Commission AR / Paid / Partial Paid` **求和**；
    其余列取**第一条**记录的值（假设同一发票其余列本来相同）；列顺序不变。
+3. **合并 Cover Ver**：新增 `Cover Ver = Cover + "/" + Ver3`，其中 `Ver3` 为 `Ver`
+   取整后补足 3 位（如 `5.0→005`、`12.0→012`；空值→`000`）。**保留**原 `Cover`/`Ver`，
+   `Cover Ver` 插在 `Ver` 列之后。`Age_Debt`（④）做同样处理。
 
 ### 2.4 Age_Debt_Report
 
@@ -83,6 +89,24 @@
 - 前 3 字母 = `Fee` **或** 前 9 字母 = `Multiline` → `Income Type = Fee/NPT Fee`
 - 否则 → `Income Type = Commission`
 
+### 3.2 Refined Base Equiv（新列）
+
+| 情况 | Refined Base Equiv |
+|---|---|
+| ①②④ | `Base Equiv`（来源行的值） |
+| ③ | `(Commission AR + Commission VAT) × Currency Rate` |
+
+### 3.3 存 Excel 前追加 4 列（按正负拆分）
+
+| 列 | 规则 |
+|---|---|
+| `AR` | `Refined Base Equiv > 0` → 其值，否则 `0` |
+| `AP` | `Refined Base Equiv < 0` → `-Refined Base Equiv`，否则 `0` |
+| `Received` | `Collection > 0` → 其值，否则 `0` |
+| `Paid Amount` | `Collection < 0` → `-Collection`，否则 `0` |
+
+> 命名为 `Paid Amount` 而非 `Paid`，以免与关键列 `Paid` 混淆。值正好为 0 时对应两列均为 0。
+
 ## 4. 输出
 
 | 项 | 说明 |
@@ -90,7 +114,7 @@
 | 文件 | 单个 `.xlsx` |
 | Sheet | **1 个 sheet** |
 | 内容 | 所有相邻对的 ①②③ + ④ 结果**纵向堆叠**（靠 `Working Month` 区分来自哪对月份） |
-| 每行列 | 保留后的原始列 … + `Collection` + `Working Month` + `Income Type` + `Report` |
+| 每行列 | 保留后的原始列(含 `Cover`/`Ver`/`Cover Ver`) … + `Collection` + `Working Month` + `Income Type` + `Report` + `Refined Base Equiv` + `AR` + `AP` + `Received` + `Paid Amount` |
 | 默认输出名 | `collection_report.xlsx` |
 
 ## 5. 运行方式
@@ -122,3 +146,4 @@ uv run python monthly_compare.py -i <输入目录> -o <输出.xlsx> --age-debt <
 | v1 | 2026-06-06 | 初版：①②③ 比对规则、Working Month=M2 月 1 号、单文件单 sheet 堆叠输出 |
 | v2 | 2026-06-06 | 列裁剪(1–20,35,38)+按 Invoice No 去重求和；自动发现 YYYYMM 文件(含跨年)；新增 Income Type(按 Risk)；新增 ④ Age_Debt 整合 |
 | v3 | 2026-06-06 | 新增 Report 列：①②=M1 文件名、③=M2 文件名、④=ADR（文件名不带扩展名） |
+| v4 | 2026-06-06 | 新增 Cover Ver 合并(Ver 补3位)；新增 Refined Base Equiv(③为公式、其余取 Base Equiv)；存盘前追加 AR/AP/Received/Paid Amount 正负拆分列 |
